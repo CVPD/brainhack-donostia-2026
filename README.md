@@ -1,3 +1,6 @@
+This project is part of the  brainhack-donostia 2026 hackathon. For more information, please visit
+https://brainhack-donostia.github.io/
+
 ## Project description
 
 <img width="1996" height="702" alt="2026-11-02_15-49" src="https://github.com/user-attachments/assets/06080034-067d-47b5-a314-4ef0f1cda69a" />
@@ -11,6 +14,13 @@ The resulting annotated dataset will be made publicly available through a Zenodo
 Depending on the model's performance and the time available, participants will also have the opportunity to investigate neuronal distribution patterns and provide quantitative statistics on cell organization across the mouse cortex.
 
 Coding experience is useful but not needed to fully participate in this project
+
+## Instructions to download the patches
+
+```bash
+uv sync
+uv run python scripts/download_patches.py --config data/datasets.yaml --output-dir data/ --skip-existing
+```
 
 ## Data
 - Data source: https://idr.openmicroscopy.org/study/idr0048/
