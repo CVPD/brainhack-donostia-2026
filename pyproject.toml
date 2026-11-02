@@ -4,4 +4,12 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "aiohttp>=3.14.5",
+    "fsspec>=2026.9.0",
+    "numpy>=2.4.6",
+    "pyyaml>=6.0.3",
+    "tifffile>=2026.3.3",
+    "tqdm>=4.70.1",
+    "zarr>=3",
+]
