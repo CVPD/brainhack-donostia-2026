@@ -1,5 +1,7 @@
 ## Project description
 
+<img width="1996" height="702" alt="2026-11-02_15-49" src="https://github.com/user-attachments/assets/06080034-067d-47b5-a314-4ef0f1cda69a" />
+
 **Brainbow** datasets enable researchers to distinguish individual cells and identify **lineage clusters**, providing valuable insights into brain development and cellular organization. Recent advances in microscopy, such as **ChroMS**, now make it possible to acquire **mesoscale images of entire brains**, opening new opportunities for **large-scale cellular analysis**.
 
 The aim of this project is to develop an automated cell detection approach using deep learning. Starting from an existing publicly available brainbow dataset, participants will manually annotate neurons to create a new collection of labelled images. These annotations will then be used to train and evaluate a deep learning model using BiaPy capable of automatically detecting individual cells.
