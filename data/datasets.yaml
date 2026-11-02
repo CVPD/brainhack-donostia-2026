@@ -1,0 +1,10 @@
+raw:
+  - url: "https://livingobjects.ebi.ac.uk/idr/zarr/v0.4/idr0048A/9846151.zarr/"
+    patch-size: [100, 512, 512]   # (z, y, x)
+    positions:                    # start corner, (z, y, x)
+      - [600, 4000, 600]
+      - [400, 4000, 600]
+      - [200, 4000, 10]
+      - [300, 3000, 1500]
+      - [400, 1200, 2200]
+      - [400, 3500, 2200]
