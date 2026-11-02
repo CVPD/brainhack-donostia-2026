@@ -17,8 +17,8 @@ Coding experience is useful but not needed to fully participate in this project
 
 ## Instructions to download the patches
 
+Download all the patches according to `data/datasets.yaml` to `data/raw`
 ```bash
-uv sync
 uv run python scripts/download_patches.py --config data/datasets.yaml --output-dir data/ --skip-existing
 ```
 
