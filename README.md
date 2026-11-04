@@ -38,4 +38,4 @@ uv run python scripts/download_patches.py --config data/datasets.yaml --output-d
 
 - BiaPy: https://biapyx.github.io/
 - Napari: https://napari.org/stable/ 
-- FIJI: https://imagej.net/software/fiji/ (install the latest version not the stable one)
+- Fiji: https://imagej.net/software/fiji/ (install the latest version not the stable one)
