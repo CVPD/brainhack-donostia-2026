@@ -224,3 +224,5 @@ __marimo__/
 
 # data
 data/raw/
+data/predictions/
+data/raw_converted/
