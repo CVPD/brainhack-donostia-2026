@@ -3,6 +3,7 @@ import itertools
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import numpy as np
 import tifffile
@@ -29,18 +30,73 @@ def get_multiscales(attrs):
     return None
 
 
-def open_array(url, level=0, workers=32, anon=True):
-    """Open one resolution level of a remote OME-Zarr. Returns (array, axes)."""
+def resolve_source(source):
+    """Classify a source string as local or remote.
+
+    Returns (location, is_local). Local sources (plain paths, ~/paths,
+    file:// URIs) are returned as absolute filesystem paths; anything else
+    with a scheme (s3://, https://, ...) is returned unchanged.
+    """
+    source = str(source)
+    if source.startswith("file://"):
+        path = unquote(urlparse(source).path)
+        # file:///C:/data/x.zarr -> C:/data/x.zarr on Windows
+        if len(path) > 2 and path[0] == "/" and path[2] == ":":
+            path = path[1:]
+        return str(Path(path).expanduser().resolve()), True
+    if "://" in source:
+        return source, False
+    return str(Path(source).expanduser().resolve()), True
+
+
+def _open_group(location, storage_options):
+    """Open a Zarr group (local path or remote URL).
+
+    OME-Zarr 0.4 is Zarr v2: read only .zgroup/.zattrs and skip .zmetadata
+    (avoids probing for files a remote server may 403 on).
+    If that fails (e.g. a Zarr v3 / OME-Zarr 0.5 store), fall back to v3.
+    """
+    try:
+        return zarr.open_group(
+            location,
+            mode="r",
+            zarr_format=2,
+            use_consolidated=False,
+            storage_options=storage_options,
+        )
+    except Exception as v2_err:
+        try:
+            return zarr.open_group(
+                location,
+                mode="r",
+                zarr_format=3,
+                storage_options=storage_options,
+            )
+        except Exception:
+            raise v2_err  # report the v2 error, it's usually the informative one
+
+
+def open_array(source, level=0, workers=32, anon=True):
+    """Open one resolution level of an OME-Zarr (local or remote).
+
+    Returns (array, axes).
+    """
+    location, is_local = resolve_source(source)
+
     storage_options = None
-    if url.startswith("s3://"):
+    if is_local:
+        if not Path(location).exists():
+            raise FileNotFoundError(f"Local Zarr path does not exist: {location}")
+    elif location.startswith("s3://"):
         storage_options = {
             "anon": anon,
             "config_kwargs": {"max_pool_connections": max(64, workers * 2)},
         }
 
-    root = zarr.open_group(url, mode="r", storage_options=storage_options)
+    root = _open_group(location, storage_options)
     ms = get_multiscales(root.attrs)
     if ms is None:
+        # bioformats2raw layout: the image lives in the "0" subgroup
         root = root["0"]
         ms = get_multiscales(root.attrs)
 
@@ -89,48 +145,85 @@ def download_patch(arr, axes, position, output, workers=32, verbose=True):
         futures = [ex.submit(fetch_chunk, idx)
                    for idx in itertools.product(*chunk_ranges)]
         for f in tqdm(as_completed(futures), total=total_chunks,
-                      desc="  Downloading chunks", unit="chunk"):
+                      desc="  Reading chunks", unit="chunk"):
             f.result()
 
-    # Drop singleton non-spatial axes (t, c) so the TIFF is (Z, Y, X)
-    keep_axes = list(axes)
-    for i in reversed(range(len(axes))):
-        if axes[i] not in ("z", "y", "x") and patch.shape[i] == 1:
-            patch = np.squeeze(patch, axis=i)
-            keep_axes.pop(i)
+    # --- Make the array ImageJ/Fiji compatible ---
+    # ImageJ hyperstacks require axis order TZCYX (S for RGB samples, not used here).
+    ij_order = ["t", "z", "c", "y", "x"]
+
+    # Normalize axis names to lowercase and check we know them all
+    axes_l = [a.lower() for a in axes]
+    unknown = [a for a in axes_l if a not in ij_order]
+    if unknown:
+        raise ValueError(f"Unsupported axes for ImageJ export: {unknown}")
+
+    # Add any missing axes as singletons so we always have TZCYX
+    for a in ij_order:
+        if a not in axes_l:
+            patch = np.expand_dims(patch, axis=0)
+            axes_l.insert(0, a)
+
+    # Reorder to TZCYX
+    perm = [axes_l.index(a) for a in ij_order]
+    patch = np.transpose(patch, perm)  # shape: (T, Z, C, Y, X)
 
     Path(output).parent.mkdir(parents=True, exist_ok=True)
-    tifffile.imwrite(output, patch, compression="zlib")
-    print(f"  Saved: {output}  shape ({', '.join(keep_axes)}): {patch.shape}")
+    tifffile.imwrite(
+        output,
+        patch,
+        imagej=True,
+        metadata={"axes": "TZCYX"},
+        compression="zlib",
+    )
+    print(f"  Saved: {output}  shape (T,Z,C,Y,X): {patch.shape}")
 
 
-def url_name(url):
-    return Path(url.rstrip("/")).name.replace(".zarr", "")
+def source_name(source):
+    """Short name for output filenames, from a local path or a URL."""
+    location, is_local = resolve_source(source)
+    if not is_local:
+        location = location.rstrip("/")
+    name = Path(location).name
+    for suffix in (".ome.zarr", ".zarr"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
 
 
 def run_config(config_path, output_dir, level, workers, anon, skip_existing):
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    jobs = []  # (url, level, patch_size, positions)
+    jobs = []  # (source, level, patch_size, positions, section)
     for section, entries in config.items():
         for entry in entries:
+            # "url" may be a remote URL or a local path; "path" is an alias
+            source = entry.get("url") or entry.get("path")
+            if source is None:
+                raise ValueError(
+                    f"Entry in section '{section}' needs a 'url' or 'path' key"
+                )
             jobs.append((
-                entry["url"],
+                source,
                 entry.get("level", level),
                 entry["patch-size"],
                 entry["positions"],
                 section,
             ))
 
-    for url, lvl, patch_size, positions, section in jobs:
-        print(f"\n=== [{section}] {url} (level {lvl}) ===")
-        arr, axes = open_array(url, lvl, workers, anon)
+    for source, lvl, patch_size, positions, section in jobs:
+        print(f"\n=== [{section}] {source} (level {lvl}) ===")
+        try:
+            arr, axes = open_array(source, lvl, workers, anon)
+        except FileNotFoundError as e:
+            print(f"  ERROR: {e}")
+            continue
         print(f"  Image shape: {arr.shape} ({axes}) dtype={arr.dtype} chunks={arr.chunks}")
 
         pz, py, px = patch_size
         for z, y, x in positions:
-            name = f"{url_name(url)}_L{lvl}_z{z}_y{y}_x{x}.tiff"
+            name = f"{source_name(source)}_L{lvl}_z{z}_y{y}_x{x}.tiff"
             output = Path(output_dir) / section / name
             if skip_existing and output.exists():
                 print(f"  Skipping existing: {output}")
@@ -144,11 +237,14 @@ def run_config(config_path, output_dir, level, workers, anon, skip_existing):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Download patches from remote OME-Zarr, via CLI or YAML config."
+        description="Extract patches from an OME-Zarr (remote or local), "
+                    "via CLI or YAML config."
     )
     src = parser.add_mutually_exclusive_group(required=True)
-    src.add_argument("--config", help="YAML file describing batch downloads")
-    src.add_argument("--url", help="Single-patch mode: Zarr URL")
+    src.add_argument("--config", help="YAML file describing batch extraction")
+    src.add_argument("--url", "--path", dest="url",
+                     help="Single-patch mode: Zarr URL (s3://, https://) "
+                          "or local path (/data/img.zarr, ~/img.zarr, file://...)")
 
     parser.add_argument("--position", nargs=6, type=int,
                         metavar=("ZMIN", "YMIN", "XMIN", "ZMAX", "YMAX", "XMAX"),
@@ -167,7 +263,7 @@ def main():
     args = parser.parse_args()
 
     if args.url and not args.position:
-        parser.error("--position is required with --url")
+        parser.error("--position is required with --url/--path")
 
     zarr.config.set({"async.concurrency": max(64, args.workers * 2)})
     anon = not args.no_anon
