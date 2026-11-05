@@ -9,6 +9,7 @@ dependencies = [
     "fsspec>=2026.9.0",
     "numpy>=2.4.6",
     "pyyaml>=6.0.3",
+    "s3fs>=2026.9.0",
     "tifffile>=2026.3.3",
     "tqdm>=4.70.1",
     "zarr>=3",
