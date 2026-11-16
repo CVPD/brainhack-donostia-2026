@@ -12,7 +12,9 @@ from tqdm import tqdm
 from datetime import datetime, timezone
 import csv
 
-def write_patch_zarr(store_path, patch_id, patch, ranges, axes, ms, level, source):
+def write_patch_zarr(store_path, patch_id, patch, ranges, axes, ms, level, source,
+                     pixel_size=None):
+    patch = patch.astype(patch.dtype.newbyteorder("="), copy=False)
     n = len(axes)
     ds = ms["datasets"][level]
     scale, translation = [1.0] * n, [0.0] * n
@@ -22,7 +24,15 @@ def write_patch_zarr(store_path, patch_id, patch, ranges, axes, ms, level, sourc
         elif t["type"] == "translation":
             translation = list(t["translation"])
 
-    # patch origin in the source's physical coordinate system
+    # the source has no physical size (scale all 1): use the one from the config
+    axes_meta = [dict(a) for a in ms["axes"]]
+    if pixel_size is not None and all(s == 1.0 for s in scale):
+        size = dict(zip("zyx", pixel_size))
+        scale = [size.get(ax, 1.0) for ax in axes]
+        for a in axes_meta:
+            if a["name"] in size:
+                a["unit"] = "micrometer"
+
     new_translation = [translation[i] + ranges[i][0] * scale[i] for i in range(n)]
 
     root = zarr.open_group(str(store_path), mode="a", zarr_format=3)
@@ -37,7 +47,7 @@ def write_patch_zarr(store_path, patch_id, patch, ranges, axes, ms, level, sourc
         "version": "0.5",
         "multiscales": [{
             "name": patch_id,
-            "axes": ms["axes"],
+            "axes": axes_meta,
             "datasets": [{
                 "path": "0",
                 "coordinateTransformations": [
@@ -225,6 +235,7 @@ def run_config(config_path, output_dir, level, workers, anon, skip_existing):
                 entry["patch-size"],
                 entry["positions"],
                 section,
+                entry.get("pixel-size"),
             ))
 
     out = Path(output_dir)
@@ -239,7 +250,7 @@ def run_config(config_path, output_dir, level, workers, anon, skip_existing):
             w.writerow(["patch_id", "section", "source", "level",
                         "z0", "y0", "x0", "z1", "y1", "x1", "dtype", "sha256"])
 
-        for source, lvl, patch_size, positions, section in jobs:
+        for source, lvl, patch_size, positions, section, pixel_size in jobs:
             print(f"\n=== [{section}] {source} (level {lvl}) ===")
             try:
                 arr, axes, ms = open_array(source, lvl, workers, anon)
@@ -261,7 +272,7 @@ def run_config(config_path, output_dir, level, workers, anon, skip_existing):
                     print(f"  ERROR at position {[z, y, x]}: {e}")
                     continue
                 digest = write_patch_zarr(store / section, patch_id, patch,
-                                          ranges, axes, ms, lvl, source)
+                                          ranges, axes, ms, lvl, source, pixel_size)
                 w.writerow([patch_id, section, source, lvl, z, y, x,
                             z + pz, y + py, x + px, str(patch.dtype), digest])
                 mf.flush()
