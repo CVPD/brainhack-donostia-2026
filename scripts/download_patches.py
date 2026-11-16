@@ -6,11 +6,55 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 import numpy as np
-import tifffile
 import yaml
 import zarr
 from tqdm import tqdm
+from datetime import datetime, timezone
+import csv
 
+def write_patch_zarr(store_path, patch_id, patch, ranges, axes, ms, level, source):
+    n = len(axes)
+    ds = ms["datasets"][level]
+    scale, translation = [1.0] * n, [0.0] * n
+    for t in ds.get("coordinateTransformations", []):
+        if t["type"] == "scale":
+            scale = list(t["scale"])
+        elif t["type"] == "translation":
+            translation = list(t["translation"])
+
+    # patch origin in the source's physical coordinate system
+    new_translation = [translation[i] + ranges[i][0] * scale[i] for i in range(n)]
+
+    root = zarr.open_group(str(store_path), mode="a", zarr_format=3)
+    g = root.require_group(patch_id)
+    chunks = tuple(min(c, s) for c, s in zip((1, 1, 16, 256, 256), patch.shape))
+    patch = patch.astype(patch.dtype.newbyteorder("="), copy=False)
+    a = g.create_array("0", shape=patch.shape, chunks=chunks, dtype=patch.dtype,
+                       dimension_names=axes, overwrite=True)
+    a[...] = patch
+
+    g.attrs["ome"] = {
+        "version": "0.5",
+        "multiscales": [{
+            "name": patch_id,
+            "axes": ms["axes"],
+            "datasets": [{
+                "path": "0",
+                "coordinateTransformations": [
+                    {"type": "scale", "scale": scale},
+                    {"type": "translation", "translation": new_translation},
+                ],
+            }],
+        }],
+    }
+    # provenance: custom namespaced key, outside the NGFF spec
+    g.attrs["patch_provenance"] = {
+        "source": str(source),
+        "level": level,
+        "bbox_pixels": {ax: [int(s), int(e)] for ax, (s, e) in zip(axes, ranges)},
+        "extracted": datetime.now(timezone.utc).isoformat(),
+    }
+    return hashlib.sha256(patch.tobytes()).hexdigest()
 
 def format_size(nbytes):
     size = float(nbytes)
@@ -102,10 +146,11 @@ def open_array(source, level=0, workers=32, anon=True):
 
     axes = [a["name"] for a in ms["axes"]]
     arr = root[ms["datasets"][level]["path"]]
-    return arr, axes
+    return arr, axes, ms
 
 
-def download_patch(arr, axes, position, output, workers=32, verbose=True):
+
+def download_patch(arr, axes, position, workers=32, verbose=True):
     """position = (zmin, ymin, xmin, zmax, ymax, xmax)"""
     zmin, ymin, xmin, zmax, ymax, xmax = position
     bounds = {"z": (zmin, zmax), "y": (ymin, ymax), "x": (xmin, xmax)}
@@ -148,36 +193,7 @@ def download_patch(arr, axes, position, output, workers=32, verbose=True):
                       desc="  Reading chunks", unit="chunk"):
             f.result()
 
-    # --- Make the array ImageJ/Fiji compatible ---
-    # ImageJ hyperstacks require axis order TZCYX (S for RGB samples, not used here).
-    ij_order = ["t", "z", "c", "y", "x"]
-
-    # Normalize axis names to lowercase and check we know them all
-    axes_l = [a.lower() for a in axes]
-    unknown = [a for a in axes_l if a not in ij_order]
-    if unknown:
-        raise ValueError(f"Unsupported axes for ImageJ export: {unknown}")
-
-    # Add any missing axes as singletons so we always have TZCYX
-    for a in ij_order:
-        if a not in axes_l:
-            patch = np.expand_dims(patch, axis=0)
-            axes_l.insert(0, a)
-
-    # Reorder to TZCYX
-    perm = [axes_l.index(a) for a in ij_order]
-    patch = np.transpose(patch, perm)  # shape: (T, Z, C, Y, X)
-
-    Path(output).parent.mkdir(parents=True, exist_ok=True)
-    tifffile.imwrite(
-        output,
-        patch,
-        imagej=True,
-        metadata={"axes": "TZCYX"},
-        compression="zlib",
-    )
-    print(f"  Saved: {output}  shape (T,Z,C,Y,X): {patch.shape}")
-
+    return patch, ranges
 
 def source_name(source):
     """Short name for output filenames, from a local path or a URL."""
@@ -198,7 +214,6 @@ def run_config(config_path, output_dir, level, workers, anon, skip_existing):
     jobs = []  # (source, level, patch_size, positions, section)
     for section, entries in config.items():
         for entry in entries:
-            # "url" may be a remote URL or a local path; "path" is an alias
             source = entry.get("url") or entry.get("path")
             if source is None:
                 raise ValueError(
@@ -212,28 +227,45 @@ def run_config(config_path, output_dir, level, workers, anon, skip_existing):
                 section,
             ))
 
-    for source, lvl, patch_size, positions, section in jobs:
-        print(f"\n=== [{section}] {source} (level {lvl}) ===")
-        try:
-            arr, axes = open_array(source, lvl, workers, anon)
-        except FileNotFoundError as e:
-            print(f"  ERROR: {e}")
-            continue
-        print(f"  Image shape: {arr.shape} ({axes}) dtype={arr.dtype} chunks={arr.chunks}")
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    store = out / "patches.ome.zarr"
+    manifest_path = out / "manifest.csv"
+    new_file = not manifest_path.exists()
 
-        pz, py, px = patch_size
-        for z, y, x in positions:
-            name = f"{source_name(source)}_L{lvl}_z{z}_y{y}_x{x}.tiff"
-            output = Path(output_dir) / section / name
-            if skip_existing and output.exists():
-                print(f"  Skipping existing: {output}")
-                continue
+    with open(manifest_path, "a", newline="") as mf:
+        w = csv.writer(mf)
+        if new_file:
+            w.writerow(["patch_id", "section", "source", "level",
+                        "z0", "y0", "x0", "z1", "y1", "x1", "dtype", "sha256"])
+
+        for source, lvl, patch_size, positions, section in jobs:
+            print(f"\n=== [{section}] {source} (level {lvl}) ===")
             try:
-                download_patch(arr, axes, (z, y, x, z + pz, y + py, x + px),
-                               output, workers)
-            except ValueError as e:
-                print(f"  ERROR at position {[z, y, x]}: {e}")
+                arr, axes, ms = open_array(source, lvl, workers, anon)
+            except FileNotFoundError as e:
+                print(f"  ERROR: {e}")
+                continue
+            print(f"  Image shape: {arr.shape} ({axes}) dtype={arr.dtype} chunks={arr.chunks}")
 
+            pz, py, px = patch_size
+            for z, y, x in positions:
+                patch_id = f"{source_name(source)}_L{lvl}_z{z}_y{y}_x{x}"
+                if skip_existing and (store / section / patch_id).exists():
+                    print(f"  Skipping existing: {patch_id}")
+                    continue
+                try:
+                    patch, ranges = download_patch(
+                        arr, axes, (z, y, x, z + pz, y + py, x + px), workers)
+                except ValueError as e:
+                    print(f"  ERROR at position {[z, y, x]}: {e}")
+                    continue
+                digest = write_patch_zarr(store / section, patch_id, patch,
+                                          ranges, axes, ms, lvl, source)
+                w.writerow([patch_id, section, source, lvl, z, y, x,
+                            z + pz, y + py, x + px, str(patch.dtype), digest])
+                mf.flush()
+                print(f"  Saved: {patch_id}")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -272,9 +304,11 @@ def main():
         run_config(args.config, args.output_dir, args.level,
                    args.workers, anon, args.skip_existing)
     else:
-        arr, axes = open_array(args.url, args.level, args.workers, anon)
+        arr, axes, ms = open_array(args.url, args.level, args.workers, anon)
         print(f"Image shape: {arr.shape} ({axes}) dtype={arr.dtype} chunks={arr.chunks}")
-        download_patch(arr, axes, args.position, args.output, args.workers)
+        patch, ranges = download_patch(arr, axes, args.position, args.workers)
+        write_patch_zarr(Path(args.output), Path(args.output).stem, patch, ranges,
+                 axes, ms, args.level, args.url)
 
 
 if __name__ == "__main__":
