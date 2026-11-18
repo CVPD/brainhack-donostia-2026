@@ -89,6 +89,6 @@ In `count_annotations.csv` you will find the number of annotations per patch, as
 
 If you find those annotations useful please cite this repository using its DOI as follows:
 
-> Caporal, C., Ejankowski, M., Ioannidis, Medina, H. F., L., Orosco Salinas, T., & Arganda-Carreras, I. (2026). Point annotations of astrocytes and layer 2/3 pyramidal neurons in Brainbow mouse cortex (OME-Zarr crops from IDR idr0048) (Version v1.0). Zenodo. https://doi.org/10.5281/zenodo.24339994
+> Caporal, C., Ejankowski, M., Ioannidis, L., Medina, H. F., Orosco Salinas, T., & Arganda-Carreras, I. (2026). Point annotations of astrocytes and layer 2/3 pyramidal neurons in Brainbow mouse cortex (OME-Zarr crops from IDR idr0048) (Version v1.0). Zenodo. https://doi.org/10.5281/zenodo.24339994
 
 Note this DOI will resolve to all versions of this repository. If you want to cite a specific version, please use the DOI of that version, which can be found in the Zenodo page of this repository.
