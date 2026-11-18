@@ -241,6 +241,7 @@ def run_config(config_path, output_dir, level, workers, anon, skip_existing):
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     store = out / "patches.ome.zarr"
+    zarr.open_group(str(store), mode="a", zarr_format=3)
     manifest_path = out / "manifest.csv"
     new_file = not manifest_path.exists()
 
