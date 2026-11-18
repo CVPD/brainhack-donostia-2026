@@ -58,12 +58,19 @@ uv run scripts/count_annotations.py data/annotations --manifest data/manifest.cs
 ```
 
 # License
-## Data
+## Data citation
 - source: https://idr.openmicroscopy.org/study/idr0048/
 - Authors: Multicolor multiscale brain imaging with chromatic multiphoton serial microscopy, Abdeladim L, Matho KS, Clavreul S, Mahou P, Sintes J-M, Solinas X, Arganda-Carreras I, Turney SG, Lichtman JW, Chessel A, Bemelmans A-P, Loulier K, Supatto W, Livet J, Beaurepaire E
 - License / access: CC BY-NC 4.0
 
-## Annotations
-- Source: [I will add zenodo link here]
-- Authors:
+## This annotations citation
+
+- Source: doi:10.5281/zenodo.24339994
+- Authors: Clément Caporal, Michal Ejankowski, Helen Fiorella Medina, Leonidas Ioannidis, Tania Orosco, Ignacio Arganda-Carreras
 - License / access: CC BY-NC 4.0
+
+If you find those annotations useful please cite this repository using its DOI as follows:
+
+    brainbow brainhack donostia contributors (2026). napari: a multi-dimensional image viewer for python. doi:10.5281/zenodo.24339994
+
+Note this DOI will resolve to all versions of this repository. If you want to cite a specific version, please use the DOI of that version, which can be found in the Zenodo page of this repository.
