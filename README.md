@@ -83,12 +83,12 @@ In `count_annotations.csv` you will find the number of annotations per patch, as
 
 ## This annotations citation
 
-- Source: doi:10.5281/zenodo.24339994
+- Source: doi:10.5281/zenodo.24339993
 - Authors: Clément Caporal, Michal Ejankowski, Helen Fiorella Medina, Leonidas Ioannidis, Tania Orosco, Ignacio Arganda-Carreras
 - License / access: CC BY-NC 4.0
 
 If you find those annotations useful please cite this repository using its DOI as follows:
 
-    brainbow brainhack donostia contributors (2026). napari: a multi-dimensional image viewer for python. doi:10.5281/zenodo.24339994
+> Caporal, C., Ejankowski, M., Medina, H. F., Ioannidis, L., Orosco Salinas, T., & Arganda-Carreras, I. (2026). Point annotations of astrocytes and layer 2/3 pyramidal neurons in Brainbow mouse cortex (OME-Zarr crops from IDR idr0048) (Version v1.0). Zenodo. https://doi.org/10.5281/zenodo.24339994
 
 Note this DOI will resolve to all versions of this repository. If you want to cite a specific version, please use the DOI of that version, which can be found in the Zenodo page of this repository.
