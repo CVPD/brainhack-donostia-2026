@@ -34,19 +34,32 @@ uv run python scripts/overview_tile.py data/patches.ome.zarr/raw data/annotation
 
 # Results
 
-## Annotations of the patches
+## Annotations
 
-In `data/annotations` you can find the annotations of the patches in the form of one csv file per patch. Each csv file contains the following columns:
-- `index`: index of the annotation
-- `axis-0`: z coordinate of the centroid (compatible with napari viewer)
-- `axis-1`: y
-- `axis-2`: x
-- `class`: class of the annotation (e.g. cell type)
+`data/annotations/` contains one CSV per patch, named after the patch
+(e.g. `9846151_L0_z250_y500_x1000.csv` annotates the patch group
+`9846151_L0_z250_y500_x1000`).
 
-Cell types are annotated according to the following classes:
-- `1`: Astrocyte
-- `2`: Pyramidal Neuron
-- `3`: unknown
+| column   | description |
+|----------|-------------|
+| `index`  | annotation index within the patch |
+| `axis-0` | z position of the cell center, in voxels |
+| `axis-1` | y position, in voxels |
+| `axis-2` | x position, in voxels |
+| `class`  | cell type (see below) |
+
+Coordinates are voxel indices in (z, y, x) order, **local to the patch**
+(origin at the patch corner), and can be loaded directly as napari points.
+- Source-image voxels: add the patch start corner (`patch_provenance.bbox_pixels`
+  in the patch metadata, or the `z/y/x` values in the patch name).
+- Micrometers: multiply by the voxel size, 1.5 x 0.4 x 0.4 µm (z, y, x),
+  as stored in the patch's NGFF `scale`.
+
+| class | cell type |
+|-------|-----------|
+| 1 | Astrocyte |
+| 2 | Pyramidal neuron |
+| 3 | Unknown |
 
 <img width="1996" alt="2026-11-02_15-49" src="docs/patch_grid.png" />
 
@@ -56,6 +69,11 @@ You can run
 ```bash
 uv run scripts/count_annotations.py data/annotations --manifest data/manifest.csv --csv count_annotations.csv
 ```
+
+In `count_annotations.csv` you will find the number of annotations per patch, as well as the total number of annotations per class:
+| Astrocyte | Pyramidal neuron | Unknown | Total |
+|-----------|------------------|---------|-------|
+| 284 | 377 | 341 | 1002 |
 
 # License
 ## Data citation
