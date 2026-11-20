@@ -83,7 +83,7 @@ In `count_annotations.csv` you will find the number of annotations per patch, as
 
 ## This annotations citation
 
-- Source: doi:10.5281/zenodo.24339993
+- Source: [doi:10.5281/zenodo.24339993](https://zenodo.org/records/24339994)
 - Authors: Clément Caporal, Michal Ejankowski, Leonidas Ioannidis, Helen Fiorella Medina, Tania Orosco, Ignacio Arganda-Carreras
 - License / access: CC BY-NC 4.0
 
